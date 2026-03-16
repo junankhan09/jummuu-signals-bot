@@ -449,7 +449,7 @@
 <body>
 
 <div class="main-container">
-    <!-- Robot Logo Only -->
+
     <div class="logo-container">
         <div class="robot-logo">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -462,13 +462,13 @@
         </div>
     </div>
 
-    <!-- API Status -->
+
     <div class="api-status-container">
         <div class="cyber-dot" id="api-status"></div>
         <span class="api-text" id="api-status-text">API READY</span>
     </div>
 
-    <!-- Pair Select - Clean names without flags -->
+
     <div class="select-wrapper">
         <select id="pair-select" class="cyber-select">
             <optgroup label="FOREX OTC PAIRS" style="color: #FFD700; background: #000;">
@@ -490,7 +490,7 @@
         </select>
     </div>
 
-    <!-- Generate Button -->
+
     <button id="generate-button" class="cyber-button">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M13 2L3 14h8l-2 8 10-12h-8l2-8z"/>
@@ -498,13 +498,13 @@
         GENERATE SIGNAL
     </button>
 
-    <!-- Loading Indicator - Only Analyzing Market -->
+
     <div id="loading-indicator" class="cyber-loader hidden">
         <div class="cyber-spinner"></div>
         <div class="loader-text">ANALYZING MARKET</div>
     </div>
 
-    <!-- Signal Output Card -->
+
     <div id="signal-output" class="signal-card hidden">
         <div class="signal-header">
             <span class="signal-title">⚡ SIGNAL READY</span>
@@ -517,14 +517,13 @@
         </div>
 
         <div class="space-y-2" id="signal-content">
-            <!-- Dynamic content will be inserted here -->
+
         </div>
 
-        <!-- Signal Arrow -->
         <div id="signal-arrow"></div>
     </div>
 
-    <!-- Error Message -->
+
     <div id="error-message" class="error-message hidden"></div>
 </div>
 
@@ -540,25 +539,25 @@
     const apiStatusText = document.getElementById('api-status-text');
     const signalArrow = document.getElementById('signal-arrow');
 
-    // Update API status
+
     const updateApiStatus = (status, text) => {
         apiStatus.className = 'cyber-dot ' + status;
         apiStatusText.textContent = `API ${text}`;
     };
 
-    // Show error
+
     const showError = (message) => {
         errorMessage.textContent = message;
         errorMessage.classList.remove('hidden');
         signalOutput.classList.add('hidden');
     };
 
-    // Hide error
+
     const hideError = () => {
         errorMessage.classList.add('hidden');
     };
 
-    // Update signal UI
+
     const updateSignalUI = (signalData) => {
         const directionClass = signalData.direction === 'CALL' ? 'direction-call' : 'direction-put';
         const directionIcon = signalData.direction === 'CALL' ? '↑' : '↓';
@@ -596,7 +595,7 @@
             </div>
         `;
 
-        // Update arrow
+
         signalArrow.innerHTML = '';
         if (signalData.direction === 'CALL') {
             signalArrow.innerHTML = `<svg width="45" height="45" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><path d="M12 5v14M5 12l7-7 7 7"/></svg>`;
@@ -608,7 +607,7 @@
         hideError();
     };
 
-    // Generate button click
+
     generateButton.addEventListener('click', async () => {
         const selectedPair = pairSelect.value;
 
@@ -617,7 +616,7 @@
             return;
         }
 
-        // Disable button and show loading
+
         generateButton.innerHTML = 'PROCESSING...';
         generateButton.disabled = true;
         loadingIndicator.classList.remove('hidden');
