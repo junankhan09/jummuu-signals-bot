@@ -4,7 +4,7 @@ import time
 from flask import Flask, render_template, jsonify, request
 from dotenv import load_dotenv
 import requests
-from functools import wraps
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv()
@@ -37,19 +37,35 @@ PAIR_MAP = {
 }
 
 
-def get_current_time_in_minutes():
-    """Get current time in minutes since midnight"""
-    from datetime import datetime
-    now = datetime.now()
-    return now.hour * 60 + now.minute
+def get_bangladesh_time_in_minutes():
+    """
+    Get current time in minutes since midnight
+    Using Bangladesh Time (UTC+6) to match API times
+    """
+    # Get current UTC time
+    utc_now = datetime.utcnow()
+
+    # Add 6 hours to get Bangladesh Time (UTC+6)
+    bd_now = utc_now + timedelta(hours=6)
+
+    # Calculate minutes since midnight in Bangladesh Time
+    current_minutes = bd_now.hour * 60 + bd_now.minute
+
+    # Debug print (will show in Render logs)
+    print(f"UTC Time: {utc_now.hour}:{utc_now.minute:02d}")
+    print(f"Bangladesh Time (UTC+6): {bd_now.hour}:{bd_now.minute:02d}")
+    print(f"Current minutes (BD): {current_minutes}")
+
+    return current_minutes
 
 
 def find_next_signal(signals):
-    """Find the next signal based on current time"""
+    """Find the next signal based on current Bangladesh Time (UTC+6)"""
     if not signals or len(signals) == 0:
         return None
 
-    current_minutes = get_current_time_in_minutes()
+    # Get current time in Bangladesh Time (UTC+6)
+    current_minutes = get_bangladesh_time_in_minutes()
 
     signals_with_time = []
     for sig in signals:
@@ -60,18 +76,20 @@ def find_next_signal(signals):
         except (ValueError, KeyError):
             continue
 
+    # Sort signals by time
     signals_with_time.sort(key=lambda x: x['signal_minutes'])
 
-    # Find next signal
+    # Find next signal (one that hasn't happened yet today in BD time)
     next_signal = None
     for sig in signals_with_time:
         if sig['signal_minutes'] >= current_minutes:
             next_signal = sig
             break
 
-    # If no future signal, take the first one (next day)
+    # If no future signal today, take tomorrow's first signal
     if not next_signal and signals_with_time:
         next_signal = signals_with_time[0]
+        print("No more signals today, showing tomorrow's first signal")
 
     return next_signal
 
@@ -99,7 +117,6 @@ def generate_signal():
             }), 400
 
         # HIDDEN LOGIC: Random delay between 6-10 seconds
-        # This happens on the server, invisible to client
         delay_time = random.uniform(6, 10)
         time.sleep(delay_time)
 
@@ -117,7 +134,7 @@ def generate_signal():
                     'message': 'Invalid API response'
                 }), 500
 
-            # Find next signal
+            # Find next signal using Bangladesh Time
             next_signal = find_next_signal(api_data['signals'])
 
             if not next_signal:
@@ -140,12 +157,14 @@ def generate_signal():
             })
 
         except requests.RequestException as e:
+            print(f"API Error: {e}")
             return jsonify({
                 'status': 'error',
                 'message': 'Failed to fetch signal from API'
             }), 500
 
     except Exception as e:
+        print(f"Server Error: {e}")
         return jsonify({
             'status': 'error',
             'message': 'Server error occurred'
@@ -155,9 +174,22 @@ def generate_signal():
 @app.route('/api/status')
 def status():
     """API endpoint to check application status"""
+    # Get current UTC and Bangladesh times
+    utc_now = datetime.utcnow()
+    bd_now = utc_now + timedelta(hours=6)
+
+    bd_hours = bd_now.hour
+    bd_minutes = bd_now.minute
+    current_minutes = bd_hours * 60 + bd_minutes
+
     return jsonify({
         'status': 'running',
-        'environment': os.getenv('FLASK_ENV', 'production')
+        'environment': os.getenv('FLASK_ENV', 'production'),
+        'utc_time': utc_now.strftime('%H:%M'),
+        'bangladesh_time': f"{bd_hours:02d}:{bd_minutes:02d}",
+        'bangladesh_minutes': current_minutes,
+        'timezone_used': 'Asia/Dhaka (UTC+6) - MATCHES API TIMES',
+        'note': 'API returns Bangladesh Time, so we use BD time for comparison'
     })
 
 
