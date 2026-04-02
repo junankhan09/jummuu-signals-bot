@@ -1,24 +1,20 @@
 import os
-import random
 import time
 from flask import Flask, render_template, jsonify, request
 from dotenv import load_dotenv
 import requests
 from datetime import datetime, timedelta
 
-# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 
-# Configuration
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-key-change-in-production')
 app.config['DEBUG'] = os.getenv('DEBUG', 'False').lower() == 'true'
 
-# API Base URL (hidden in backend)
-QUOTEX_API_BASE = 'https://quotex-api.jummuubot.workers.dev/?pairs='
+QUOTEX_API_BASE = os.getenv('QUOTEX_API_BASE', 'https://quotex-api.jummuubot.workers.dev/?pairs=')
 
-# Pair mapping (same as frontend but hidden in backend)
+# ALL YOUR PAIRS
 PAIR_MAP = {
     'USDBDT_otc': 'USD/BDT (OTC)',
     'USDBRL_otc': 'BRL/USD (OTC)',
@@ -37,161 +33,174 @@ PAIR_MAP = {
 }
 
 
-def get_bangladesh_time_in_minutes():
-    """
-    Get current time in minutes since midnight
-    Using Bangladesh Time (UTC+6) to match API times
-    """
-    # Get current UTC time
-    utc_now = datetime.utcnow()
-
-    # Add 6 hours to get Bangladesh Time (UTC+6)
-    bd_now = utc_now + timedelta(hours=6)
-
-    # Calculate minutes since midnight in Bangladesh Time
-    current_minutes = bd_now.hour * 60 + bd_now.minute
-
-    # Debug print (will show in Render logs)
-    print(f"UTC Time: {utc_now.hour}:{utc_now.minute:02d}")
-    print(f"Bangladesh Time (UTC+6): {bd_now.hour}:{bd_now.minute:02d}")
-    print(f"Current minutes (BD): {current_minutes}")
-
-    return current_minutes
+def get_current_bd_time():
+    """Get current Bangladesh time (UTC+6)"""
+    return datetime.utcnow() + timedelta(hours=6)
 
 
-def find_next_signal(signals):
-    """Find the next signal based on current Bangladesh Time (UTC+6)"""
-    if not signals or len(signals) == 0:
+def get_next_signal(pair):
+    """Get the NEXT upcoming signal from API based on current BD time"""
+    api_url = f"{QUOTEX_API_BASE}{pair}"
+
+    try:
+        response = requests.get(api_url, timeout=10)
+        data = response.json()
+
+        if data.get('status') != 'success' or not data.get('signals'):
+            print(f"API error for {pair}")
+            return None
+
+        signals = data['signals']
+        current_time = get_current_bd_time()
+        current_minutes = current_time.hour * 60 + current_time.minute
+
+        print(f"Current BD Time: {current_time.strftime('%H:%M')} (minutes: {current_minutes})")
+
+        # Find all future signals (after current time)
+        future_signals = []
+        for sig in signals:
+            if 'time' in sig:
+                try:
+                    h, m = map(int, sig['time'].split(':'))
+                    sig_minutes = h * 60 + m
+                    if sig_minutes > current_minutes:
+                        future_signals.append({
+                            'signal': sig,
+                            'minutes': sig_minutes,
+                            'time': sig['time']
+                        })
+                except:
+                    continue
+
+        # Sort by time
+        future_signals.sort(key=lambda x: x['minutes'])
+
+        if future_signals:
+            next_sig = future_signals[0]['signal']
+            print(f"Next signal: {future_signals[0]['time']} - {next_sig.get('direction')}")
+            return next_sig
+
+        # If no future signals today, return first of tomorrow
+        if signals:
+            first_sig = signals[0]
+            print(f"No more today, showing first tomorrow: {first_sig.get('time')}")
+            return first_sig
+
         return None
 
-    # Get current time in Bangladesh Time (UTC+6)
-    current_minutes = get_bangladesh_time_in_minutes()
-
-    signals_with_time = []
-    for sig in signals:
-        try:
-            hours, minutes = map(int, sig['time'].split(':'))
-            signal_minutes = hours * 60 + minutes
-            signals_with_time.append({**sig, 'signal_minutes': signal_minutes})
-        except (ValueError, KeyError):
-            continue
-
-    # Sort signals by time
-    signals_with_time.sort(key=lambda x: x['signal_minutes'])
-
-    # Find next signal (one that hasn't happened yet today in BD time)
-    next_signal = None
-    for sig in signals_with_time:
-        if sig['signal_minutes'] >= current_minutes:
-            next_signal = sig
-            break
-
-    # If no future signal today, take tomorrow's first signal
-    if not next_signal and signals_with_time:
-        next_signal = signals_with_time[0]
-        print("No more signals today, showing tomorrow's first signal")
-
-    return next_signal
+    except Exception as e:
+        print(f"API Error: {e}")
+        return None
 
 
 @app.route('/')
 def index():
-    """Home page route"""
+    """Home page"""
     return render_template('index.html')
+
+
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    current = get_current_bd_time()
+    return jsonify({
+        'status': 'ok',
+        'current_time': current.strftime('%H:%M:%S'),
+        'pairs': len(PAIR_MAP),
+        'timezone': 'UTC+6 (Bangladesh Time)'
+    })
 
 
 @app.route('/api/generate-signal', methods=['POST'])
 def generate_signal():
-    """
-    API endpoint to generate signal
-    This contains the hidden logic for delay and API fetching
-    """
+    """Get next real signal from API"""
     try:
         data = request.get_json()
         pair = data.get('pair')
 
         if not pair:
-            return jsonify({
-                'status': 'error',
-                'message': 'Please select a market pair'
-            }), 400
+            return jsonify({'status': 'error', 'message': 'No pair selected'}), 400
 
-        # HIDDEN LOGIC: Random delay between 6-10 seconds
-        delay_time = random.uniform(6, 10)
-        time.sleep(delay_time)
+        # Get next signal from API
+        signal = get_next_signal(pair)
 
-        # HIDDEN LOGIC: Fetch from external API
-        api_url = f"{QUOTEX_API_BASE}{pair}"
+        if not signal:
+            return jsonify({'status': 'error', 'message': 'No signals available'}), 404
 
-        try:
-            response = requests.get(api_url, timeout=10)
-            response.raise_for_status()
-            api_data = response.json()
+        current = get_current_bd_time()
 
-            if api_data.get('status') != 'success' or not api_data.get('signals'):
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Invalid API response'
-                }), 500
+        response = jsonify({
+            'status': 'success',
+            'signal': {
+                'time': signal.get('time', '--:--'),
+                'direction': signal.get('direction', 'CALL'),
+                'duration': signal.get('duration', 'M1'),
+                'martingale': signal.get('martingale', 'MG1'),
+                'accuracy': signal.get('accuracy', '--'),
+                'pair': PAIR_MAP.get(pair, pair.replace('_otc', '').replace('_', '/'))
+            },
+            'current_time': current.strftime('%H:%M')
+        })
 
-            # Find next signal using Bangladesh Time
-            next_signal = find_next_signal(api_data['signals'])
+        # Prevent any caching
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
 
-            if not next_signal:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'No upcoming signals found'
-                }), 404
-
-            # Format the response (clean data for frontend)
-            return jsonify({
-                'status': 'success',
-                'signal': {
-                    'time': next_signal.get('time', '--:--'),
-                    'direction': next_signal.get('direction', 'CALL'),
-                    'duration': next_signal.get('duration', 'M1'),
-                    'martingale': next_signal.get('martingale', 'MG1'),
-                    'accuracy': next_signal.get('accuracy', '--'),
-                    'pair': PAIR_MAP.get(pair, pair.replace('_otc', '').replace('_', '/'))
-                }
-            })
-
-        except requests.RequestException as e:
-            print(f"API Error: {e}")
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to fetch signal from API'
-            }), 500
+        return response
 
     except Exception as e:
-        print(f"Server Error: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': 'Server error occurred'
-        }), 500
+        print(f"Error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/api/status')
 def status():
-    """API endpoint to check application status"""
-    # Get current UTC and Bangladesh times
-    utc_now = datetime.utcnow()
-    bd_now = utc_now + timedelta(hours=6)
+    """API status endpoint"""
+    current = get_current_bd_time()
+    current_min = current.hour * 60 + current.minute
 
-    bd_hours = bd_now.hour
-    bd_minutes = bd_now.minute
-    current_minutes = bd_hours * 60 + bd_minutes
+    # Test API connection
+    api_connected = False
+    signals_count = 0
+    try:
+        r = requests.get(f"{QUOTEX_API_BASE}USDBDT_otc", timeout=5)
+        if r.status_code == 200:
+            api_connected = True
+            signals_count = len(r.json().get('signals', []))
+    except:
+        pass
 
     return jsonify({
         'status': 'running',
-        'environment': os.getenv('FLASK_ENV', 'production'),
-        'utc_time': utc_now.strftime('%H:%M'),
-        'bangladesh_time': f"{bd_hours:02d}:{bd_minutes:02d}",
-        'bangladesh_minutes': current_minutes,
-        'timezone_used': 'Asia/Dhaka (UTC+6) - MATCHES API TIMES',
-        'note': 'API returns Bangladesh Time, so we use BD time for comparison'
+        'current_time': current.strftime('%H:%M:%S'),
+        'current_minutes': current_min,
+        'api_connected': api_connected,
+        'signals_count': signals_count,
+        'pairs': len(PAIR_MAP)
+    })
+
+
+@app.route('/api/pairs')
+def get_pairs():
+    """Return all trading pairs"""
+    return jsonify({
+        'status': 'success',
+        'pairs': PAIR_MAP,
+        'count': len(PAIR_MAP)
     })
 
 
 if __name__ == '__main__':
-    app.run(debug=app.config['DEBUG'])
+    port = int(os.environ.get('PORT', 5000))
+    current = get_current_bd_time()
+
+    print("=" * 60)
+    print("🚀 QUOTEX SIGNAL BOT - READY")
+    print("=" * 60)
+    print(f"Current BD Time: {current.strftime('%H:%M:%S')}")
+    print(f"Pairs Loaded: {len(PAIR_MAP)}")
+    print(f"API Endpoint: {QUOTEX_API_BASE}")
+    print("=" * 60)
+
+    app.run(host='0.0.0.0', port=port, debug=app.config['DEBUG'])
